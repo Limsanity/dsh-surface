@@ -30,7 +30,7 @@ That child brings only the compressed context — **no `assistant/chunk` events,
 | File | Role |
 |---|---|
 | `lib/surface-seed.js` | **Pure core** (zero DSH imports): checkpoint locate, turn snap, seed re-emission. Unit-tested. |
-| `lib/index.js` | **Host**: `webServer` route, DSH helpers wired, `ctx.agents.create`. |
+| `lib/index.js` | **Host**: `webServer` route, real `@deepseek-ai/dsh-compaction` import (resolved to the HOST copy by `scripts/link-dev-deps.sh`), `ctx.agents.create`. |
 | `lib/client.js` | **Client**: assistant-actions slot button → endpoint → `open(childId)`. |
 | `cordis.patch.yml` | Bundle manifest: insert the plugin into the web app. |
 
@@ -81,9 +81,9 @@ interface SurfaceConfig {
 
 - A real surface-forked child session (`session-…-surface-35695bca…`) was inspected from its `session.jsonl.zstd`: the seed portion has **no stale runtime-context / skill-catalog injection** (those appear only in the child's own live turn, freshly injected by its loop) and clean step/turn grouping — user prompt + assistant + `tool/result` in one step, continuation assistants in new steps, no empty "context" rows.
 
-### Live-session host (no bare `@deepseek-ai/dsh-*` imports)
+### Live-session host (`link-dev-deps` resolves `@deepseek-ai/dsh-*`)
 
-A link-installed plugin's host **cannot resolve bare `@deepseek-ai/dsh-*` imports** by name — only real npm packages get a `.pnpm` store, and `@deepseek-ai/dsh-session` is npm-published only at `0.0.1-rc.1` (not the harness's `0.1.1-rc.2`). So `lib/index.js` imports **no `@deepseek-ai/dsh-*`**: instead of re-implementing the surface fold/projection, it uses the **live `Session`'s own API** — `session.surface.nodes` for the surface and `session.deriveEventMessage(event)` for the projection — and consumes sessions / agents / webServer / agentPresets through injected `ctx` services. The only dsh-specific constant it re-derives is the one-line compaction-checkpoint marker (`source.kind === 'plugin' && source.plugin === 'compact'`). Because it needs the live `Session`, a **cold (unloaded) session cannot be surface-forked** — open it in the Web UI first. The client half uses `ctx.*` services and the module table's `require('react')`.
+A link-installed plugin's host **cannot resolve bare `@deepseek-ai/dsh-*` imports** by name — only real npm packages get a `.pnpm` store, and the registry's `@deepseek-ai/*` versions don't match the harness's (e.g. `@deepseek-ai/dsh-session` is published at `0.0.1-rc.1`, the harness uses `0.1.1-rc.2`). So `scripts/link-dev-deps.sh` symlinks the **HOST copies** of those packages into this checkout's `node_modules` (run after `pnpm install`). `lib/index.js` therefore imports the REAL `isCompactCheckpointSource` from `@deepseek-ai/dsh-compaction` instead of mirroring dsh internals. The surface fold/projection still uses the **live `Session`'s own API** — `session.surface.nodes` for the surface and `session.deriveEventMessage(event)` for the projection — and consumes sessions / agents / webServer / agentPresets through injected `ctx` services. Because it needs the live `Session`, a **cold (unloaded) session cannot be surface-forked** — open it in the Web UI first. The client half uses `ctx.*` services and the module table's `require('react')`.
 
 ### What is verified vs. unverified
 
@@ -98,7 +98,7 @@ The algorithm, `makeEvent`, and real-`Session` acceptance are validated via the 
 
 ## Install
 
-The `@deepseek-ai/dsh-*` imports in `lib/index.js` are peer-satisfied by the running dsh host at load time (not by the profile's `node_modules`), matching the other installed bundle plugins. Whichever way you install, restart `dsh web` after adding.
+The `@deepseek-ai/dsh-*` import in `lib/index.js` (`@deepseek-ai/dsh-compaction`) resolves at load time to the **HOST copy** via `scripts/link-dev-deps.sh`, which symlinks `$DSH_HOME/profiles/node_modules/@deepseek-ai` into this checkout's `node_modules`. Run it after any `pnpm install`. Whichever way you install, restart `dsh web` after adding.
 
 ### From npm (recommended)
 
@@ -122,9 +122,12 @@ The client bundle (`lib/client.js`) is committed to the repo, so a git install n
 ### Local dev (link)
 
 ```bash
-npm run build   # regenerate lib/client.js from src/client.js
+npm run build               # regenerate lib/client.js from src/client.js (only when src/client.js changes)
+./scripts/link-dev-deps.sh  # symlink the HOST's @deepseek-ai/* into node_modules (required for the host import)
 dsh plugin --profile web add link:/绝对路径/到/dsh-surface
 ```
+
+A link-installed plugin's host **cannot resolve bare `@deepseek-ai/dsh-*` imports by name** (Node follows the symlink to the real checkout dir, past DSH's flat fallback). So `scripts/link-dev-deps.sh` symlinks `$DSH_HOME/profiles/node_modules/@deepseek-ai` into this checkout's `node_modules`, letting `lib/index.js` import the real `@deepseek-ai/dsh-compaction` from the **HOST copy**. Re-run it after any `pnpm install`. This step is only needed for **local link** development — an npm/git install (a real package) resolves the import against the host at load time via the flat fallback.
 
 All three forms run `pnpm add` in `~/.dsh/profiles/web`, adding `@lim324/dsh-surface` to both the profile's `dependencies` and `dsh.profile.bundles`.
 
