@@ -1,6 +1,6 @@
 # @lim324/dsh-surface
 
-English | [中文](docs/design.zh.md)
+English | [中文](README.zh.md)
 
 A standalone DSH Web GUI bundle plugin that adds a **surface fork** action: continue a session in a **lightweight new session** seeded from the **last compaction checkpoint** to a target turn (surface re-seed), instead of the official `fork`'s full raw-log copy.
 
