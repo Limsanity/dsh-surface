@@ -1,7 +1,7 @@
 {
   "name": "@lim324/dsh-surface",
   "description": "surface-fork plugin for the DSH Web GUI: continue a session in a lightweight NEW session seeded from the latest compaction checkpoint to a target turn (surface re-seed), implemented as a standalone bundle plugin with zero edits to the deepseek-harness packages.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",

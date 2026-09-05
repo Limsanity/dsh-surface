@@ -30,7 +30,7 @@
 | 文件 | 作用 |
 |---|---|
 | `lib/surface-seed.js` | **纯核心**（零 DSH 依赖）：checkpoint 定位、turn 吸附、seed 重排。有单测。 |
-| `lib/index.js` | **Host**：`webServer` 路由、DSH 辅助接线、`ctx.agents.create`。 |
+| `lib/index.js` | **Host**：`webServer` 路由、真实 `@deepseek-ai/dsh-compaction` import（由 `scripts/link-dev-deps.sh` 解析到 HOST 拷贝）、`ctx.agents.create`。 |
 | `lib/client.js` | **Client**：assistant-actions 槽位按钮 → 调端点 → `open(childId)`。 |
 | `cordis.patch.yml` | Bundle 清单：把插件插入 web app。 |
 
@@ -74,21 +74,21 @@ interface SurfaceConfig {
 ## 已验证事实
 
 - `test/surface-seed.test.js`（纯、独立）：checkpoint 定位、atSeq/省略 turn 吸附、从 surface 连续重排、无 chunk/被替换历史。`buildSurfaceSeed` 会把消息按**自然 step** 分组（进入的 user 消息 + 一条 assistant + 其工具结果在一个 step；带 tool-call 的 assistant 保持该 step 打开以接收 `tool/result`；其后的 continuation assistant 在同一 turn 开新 step），并**剔除瞬态逐 step 注入**（`@deepseek-ai/dsh-system-prompt` 运行期上下文快照与 `skill-catalog`），这些由新会话自己重新生成。
-- `test/runtime-validation.mjs`（真实 DSH，不改 harness 源码）：构造一个含 compaction checkpoint 的真实源 `Session`，然后验证**自包含** host 路径：
-  - `lib/dsh-compat` 的 `foldSurfaceNodes` / `deriveEventMessage` / `isCompactCheckpointSource` 与真实 `@deepseek-ai/dsh-session` / `dsh-compaction` **逐一对上**；
+- `test/runtime-validation.mjs`（真实 DSH，不改 harness 源码）：构造一个含 compaction checkpoint 的真实源 `Session`，然后验证 host 路径：
+  - 用 live `Session` 的 `session.surface.nodes` + `session.deriveEventMessage` 生成 surface/投影（同 `lib/index.js`），压缩点检测与真实 `@deepseek-ai/dsh-compaction` 的 `isCompactCheckpointSource` 语义一致；
   - 重排出的子会话 seed 通过**真实严格的 `Session.create`** 校验，
   - 复现与压缩后源会话相同的模型可见 `deriveMessages()`，
   - 不带 `assistant/chunk`、不带 `compaction/*`，seq 从 0 连续。
 
 - 从一个真实 surface-fork 子会话（`session-…-surface-35695bca…`）的 `session.jsonl.zstd` 核对：seed 部分**没有过期的 runtime-context / skill-catalog 注入**（这些只出现在子会话自己的 live 轮次、由它的 loop 重新注入），step/turn 分组干净——user 提示 + assistant + `tool/result` 在一个 step、continuation 在新 step，无空 "context" 行。
 
-### 为什么 host 要自包含
+### host 用 `link-dev-deps` 解析 `@deepseek-ai/dsh-*`
 
-`link:` 安装的插件 host **无法按名字解析裸 `@deepseek-ai/dsh-*` 导入**——只有真实 npm 包才有 `.pnpm` store，而 `@deepseek-ai/dsh-session` 在 npm 只发布到 `0.0.1-rc.1`（不是 harness 的 `0.1.1-rc.2`）。所以 `lib/index.js` **不导入任何 `@deepseek-ai/dsh-*`**：它在 `lib/dsh-compat.js` 里自行重导出这些小而明确的 surface 片段（并与真实函数逐一比对），其余通过注入的 `ctx` 服务使用 sessions / agents / webServer / agentPresets。client 半用 `ctx.*` 服务 + 模块表的 `require('react')`。
+`link:` 安装的插件 host **无法按名字解析裸 `@deepseek-ai/dsh-*` 导入**——Node 会沿符号链接解析到真实 checkout 目录、错过 DSH 的平铺回退目录，而且 registry 上 `@deepseek-ai/*` 的版本与 harness 不一致（如 `@deepseek-ai/dsh-session` 只发布到 `0.0.1-rc.1`，harness 用 `0.1.1-rc.2`）。所以 `scripts/link-dev-deps.sh` 会把 **HOST 拷贝**的 `@deepseek-ai/*` 软链进本 checkout 的 `node_modules`（`pnpm install` 后运行）。`lib/index.js` 因此可以直接 **import 真实 `@deepseek-ai/dsh-compaction` 的 `isCompactCheckpointSource`**，不再复刻 dsh 内部。surface 折叠/投影仍用 **live `Session` 自带 API**——`session.surface.nodes`（surface）与 `session.deriveEventMessage(event)`（投影）。因为需要 live `Session`，**未加载(冷)会话无法 surface-fork**——先在 Web UI 打开。client 半用 `ctx.*` 服务 + 模块表的 `require('react')`。
 
 ### 已验证 vs 未验证
 
-算法、`makeEvent`、真实 `Session` 接受性已验证；dsh-compat 与真实函数逐一比对过。仍需**真实 dsh host** 实测（此处未覆盖）：`webServer` 路由、`ctx.sessionPersistence` 冷读、`ctx.get('agentPresets')` 组合、以及 `ctx.agents.create` 端到端。
+算法、`makeEvent`、真实 `Session` 接受性已验证；host 用 live `Session` API，压缩点语义与真实 `@deepseek-ai/dsh-compaction` 一致。仍需**真实 dsh host** 实测（此处未覆盖）：`webServer` 路由、`ctx.sessionPersistence` 冷读、`ctx.get('agentPresets')` 组合、以及 `ctx.agents.create` 端到端。
 
 ## 已知待办
 
@@ -99,7 +99,7 @@ interface SurfaceConfig {
 
 ## 安装
 
-`lib/index.js` 里的 `@deepseek-ai/dsh-*` 导入由运行中的 dsh host 在加载时提供（不是 profile 的 `node_modules`），与其它 bundle 插件一致。无论哪种安装方式，装完都重启 `dsh web`。
+`lib/index.js` 里的 `@deepseek-ai/dsh-*` 导入（`@deepseek-ai/dsh-compaction`）在加载时通过 `scripts/link-dev-deps.sh` 解析到 **HOST 拷贝**——它把 `$DSH_HOME/profiles/node_modules/@deepseek-ai` 软链进本 checkout 的 `node_modules`。任何 `pnpm install` 后都要重跑。无论哪种安装方式，装完都重启 `dsh web`。
 
 ### 从 npm（推荐）
 
@@ -123,9 +123,12 @@ client bundle（`lib/client.js`）已入库，所以 git 安装无需 build。
 ### 本地开发（link）
 
 ```bash
-npm run build   # 从 src/client.js 重新生成 lib/client.js
+npm run build               # 从 src/client.js 重新生成 lib/client.js（仅当 src/client.js 改动时）
+./scripts/link-dev-deps.sh  # 把 HOST 的 @deepseek-ai/* 软链进 node_modules（host import 需要）
 dsh plugin --profile web add link:/绝对路径/到/dsh-surface
 ```
+
+link 安装的插件 host 无法按名字解析裸 `@deepseek-ai/dsh-*` 导入，所以 `scripts/link-dev-deps.sh` 会把 `$DSH_HOME/profiles/node_modules/@deepseek-ai` 软链进本 checkout 的 `node_modules`，让 `lib/index.js` 从 **HOST 拷贝** import 真实的 `@deepseek-ai/dsh-compaction`。任何 `pnpm install` 后都要重跑。此步骤仅用于**本地 link 开发**——npm/git 安装（真实包）会在加载时经平铺回退目录直接在 host 上解析该 import。
 
 三种方式都会在 `~/.dsh/profiles/web` 里跑 `pnpm add`，同时把 `@lim324/dsh-surface` 写入 profile 的 `dependencies` 和 `dsh.profile.bundles`。
 
