@@ -74,21 +74,20 @@ interface SurfaceConfig {
 ## Verified facts
 
 - `test/surface-seed.test.js` (pure, standalone): checkpoint locate, atSeq/omitted turn snap, contiguous re-emission from surface without chunks/shadowed history. `buildSurfaceSeed` groups messages into **natural steps** (entered user messages + one assistant + its tool results in one step; a tool-call assistant keeps its step open to receive `tool/result` events; the continuation assistant opens a new step in the same turn) and **drops transient per-step injections** (runtime-context snapshot `@deepseek-ai/dsh-system-prompt` and `skill-catalog`) that a fresh session re-derives itself.
-- `test/runtime-validation.mjs` (real DSH, no harness source edits): builds a real source `Session` containing a compaction checkpoint, then validates the **self-contained** host path against it:
-  - `lib/dsh-compat`'s `foldSurfaceNodes` / `deriveEventMessage` / `isCompactCheckpointSource` are **cross-checked to exactly match** the real `@deepseek-ai/dsh-session` / `dsh-compaction` functions;
+- `test/runtime-validation.mjs` (real DSH, no harness source edits): builds a real source `Session` containing a compaction checkpoint, then validates the **host path** against it — using the LIVE session's own API (`session.surface.nodes` + `session.deriveEventMessage`) exactly as `lib/index.js` does:
   - the re-emitted child seed passes the **real strict `Session.create`** validator,
   - reconstructs the same model-visible `deriveMessages()` as the post-compaction source,
   - carries no `assistant/chunk` and no `compaction/*` events, is seq-contiguous from 0.
 
 - A real surface-forked child session (`session-…-surface-35695bca…`) was inspected from its `session.jsonl.zstd`: the seed portion has **no stale runtime-context / skill-catalog injection** (those appear only in the child's own live turn, freshly injected by its loop) and clean step/turn grouping — user prompt + assistant + `tool/result` in one step, continuation assistants in new steps, no empty "context" rows.
 
-### Self-contained host (why)
+### Live-session host (no bare `@deepseek-ai/dsh-*` imports)
 
-A link-installed plugin's host **cannot resolve bare `@deepseek-ai/dsh-*` imports** by name — only real npm packages get a `.pnpm` store, and `@deepseek-ai/dsh-session` is npm-published only at `0.0.1-rc.1` (not the harness's `0.1.1-rc.2`). So `lib/index.js` imports **no `@deepseek-ai/dsh-*`**: it re-derives the small surface pieces in `lib/dsh-compat.js` (cross-checked against the real functions) and consumes sessions / agents / webServer / agentPresets through injected `ctx` services. The client half uses `ctx.*` services and the module table's `require('react')`.
+A link-installed plugin's host **cannot resolve bare `@deepseek-ai/dsh-*` imports** by name — only real npm packages get a `.pnpm` store, and `@deepseek-ai/dsh-session` is npm-published only at `0.0.1-rc.1` (not the harness's `0.1.1-rc.2`). So `lib/index.js` imports **no `@deepseek-ai/dsh-*`**: instead of re-implementing the surface fold/projection, it uses the **live `Session`'s own API** — `session.surface.nodes` for the surface and `session.deriveEventMessage(event)` for the projection — and consumes sessions / agents / webServer / agentPresets through injected `ctx` services. The only dsh-specific constant it re-derives is the one-line compaction-checkpoint marker (`source.kind === 'plugin' && source.plugin === 'compact'`). Because it needs the live `Session`, a **cold (unloaded) session cannot be surface-forked** — open it in the Web UI first. The client half uses `ctx.*` services and the module table's `require('react')`.
 
 ### What is verified vs. unverified
 
-The algorithm, `makeEvent`, and real-`Session` acceptance are validated; dsh-compat is cross-checked against the real functions. Still needing a **live dsh host** to exercise (not covered here): `webServer` routing, `ctx.sessionPersistence` cold reads, the `ctx.get('agentPresets')` composition, and `ctx.agents.create` end-to-end.
+The algorithm, `makeEvent`, and real-`Session` acceptance are validated via the live-Session API path. Still needing a **live dsh host** to exercise (not covered here): `webServer` routing, the `ctx.get('agentPresets')` composition, and `ctx.agents.create` end-to-end.
 
 ## Known follow-ups
 
