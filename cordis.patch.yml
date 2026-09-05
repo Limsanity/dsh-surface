@@ -1,0 +1,7 @@
+# dsh-surface — bundle manifest.
+# Insert the plugin row into the web-app composition. No official component is
+# replaced: the client half joins the conversation through the
+# 'conversation.chat.assistant-actions' slot, so there is no patch fork here.
+- insert:
+    - id: dsh-surface
+      name: '@lim324/dsh-surface'
