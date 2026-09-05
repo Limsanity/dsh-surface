@@ -1,6 +1,6 @@
 # dsh-surface 设计文档
 
-> 状态：**设计定稿，实现进行中**。M1 纯核心已实现并通过单测（6/6）；M2「seed 重播路径」已用**真实 `@deepseek-ai/dsh-session`** 运行期验证（`npm run test:runtime`：重播 seed 通过真实 `Session.create` 严格校验、子会话 `deriveMessages()` 复现父会话压缩后 surface、无 chunk/compaction 标记），并已在**真实 surface-fork 子会话**上核对：seed 无过期 runtime-context / skill-catalog 注入（只出现在子会话自己的 live 轮次、由 loop 重新注入），step/turn 分组正常、无空 context 行（`buildSurfaceSeed` 已改为自然 step 分组 + 剔除瞬态注入 + 工具结果发 `tool/result`）。M2 host 的 ctx 接线（webServer/preset/`ctx.agents.create`）与 M3 client 仍需**真实 dsh 宿主与打包**验证。
+> 状态：**设计定稿，实现进行中**。M1 纯核心已实现并通过单测（6/6）；M2「seed 重播路径」已用**真实 `@deepseek-ai/dsh-session`** 运行期验证（`npm run test:runtime`：重播 seed 通过真实 `Session.create` 严格校验、子会话 `deriveMessages()` 复现父会话压缩后 surface、无 chunk/compaction 标记），并已在**真实 surface-fork 子会话**上核对：seed 无过期 runtime-context / skill-catalog 注入（只出现在子会话自己的 live 轮次、由 loop 重新注入），step/turn 分组正常、无空 context 行（`buildSurfaceSeed` 已改为自然 step 分组 + 剔除瞬态注入 + 工具结果发 `tool/result`）。**host 已改为用 live Session 自带 API（`session.surface.nodes` + `session.deriveEventMessage`）进行表面折叠/投影，不再 `import '@deepseek-ai/dsh-*'`、也不复制 dsh-session 的 fold/project，仅内联一行 checkpoint 判定；因此只支持 live 会话、cold 需先在 Web UI 打开。** M2 host 的 ctx 接线（webServer/preset/`ctx.agents.create`）与 M3 client 仍需**真实 dsh 宿主与打包**验证。
 > 本插件定位：为 DSH Web GUI 提供一个「**surface fork**」能力——把一段会话从「最近一次 compaction checkpoint」继续到一个目标轮次（target turn）时，用**压缩后的 surface 重播种**出一个轻量新会话，而不是用官方 `fork` 的整段原始日志复制。
 > 硬约束：**不修改 `deepseek-harness` 官方 `packages/` 源码**，做成独立 bundle 插件。
 
@@ -139,12 +139,11 @@ type Response = { ok: true; childId: SessionId } | { ok: false; code: string; me
 
 ### 6.3 算法（重播种核心）
 
-1. **读会话**：`ctx.sessions.get(sessionId)`（live）等价于拿到 `Session`（有 `.surface`）；cold 用 `sessionQuery`/persistence `inspect` 或 `readFrom` 得到 `{ header, events }`。
-2. **找最近 checkpoint**：在 `events` 中定位最后一个满足 `isCompactCheckpointSource(ev)`（`@deepseek-ai/dsh-compaction` 公开导出）的 `user/message`，记为 `ckptSeq`。没有 → 按配置降级（§9）。
+1. **读会话**：`ctx.sessions.get(sessionId)` 拿到 **live `Session`**（有 `.surface` / `.deriveEventMessage`）。**只支持 live 会话**——表面折叠/投影用 live Session 自带的 API（无需 `@deepseek-ai/dsh-*` 导入），cold（未加载）会话无法 surface-fork（需先在 Web UI 打开）。
+2. **找最近 checkpoint**：在 `events` 中定位最后一个满足 checkpoint 标记（`data.source.kind==='plugin' && data.source.plugin==='compact'`，host 内联判定，等价 `isCompactCheckpointSource`）的 `user/message`，记为 `ckptSeq`。没有 → 按配置降级（§9）。
 3. **吸附目标 turn**：复用官方 fork 的 snap 规则（`packages/host/apiproxy/src/api-proxy.ts:2263`）：`atSeq` 给定时取「第一个 `turn/end` ≥ atSeq」；省略/超尾取「最后一个 `turn/end`」。若落在 open turn 内，落到最后一个已完成 `turn/end`。
 4. **构建 seed（deriveSurface）**：
-   - 用 `foldSurface(events)`（`@deepseek-ai/dsh-session` 公开导出）折出 `surface.nodes`。
-   - 取 `ckptSeq` 起到目标 `turn/end` 的 surface 节点，逐个 `deriveEventMessage(events[seq])` 投影成 `Message[]`。
+   - 用 live `session.surface.nodes` 作为 surface 节点 seq；对每个 seq 用 `session.deriveEventMessage(events[seq])` 投影成 `Message[]`（用 Session 自带方法，不复制 dsh 逻辑）。
    - **剔除瞬态注入**：跳过 `source.kind === 'skill-catalog'` 与 `source.kind==='plugin' && source.plugin==='@deepseek-ai/dsh-system-prompt'` 的 user 消息（运行期上下文快照、可用技能目录）。这些由新会话自己在下一步重新注入，保留旧快照只会带进过时上下文。
    - **按自然 step/turn 重排**：一个 `step` = 进入的 user 消息（连续 user/注入 context 归并）+ 一条 assistant + 其工具结果。工具结果（`source.kind==='tool'` 或 content 含 `tool-result`）**发成 `tool/result` 事件**；带 tool-call 的 assistant 保持该 step 打开以接收工具结果；其后的 continuation assistant 在**同一 turn** 开新 step；无 tool-call 的 assistant 收尾该 step 与 turn。seq 从 0 连续。
    - 得到一段**连续、从 0 起、balanced、无 chunk、无悬空引用、step/turn 合理分组、无瞬态注入**的 `SessionEvent[]`。

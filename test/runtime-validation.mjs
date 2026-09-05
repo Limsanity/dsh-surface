@@ -2,17 +2,19 @@
 //   node test/runtime-validation.mjs
 //
 // This builds a real `Session` (harness packages, imported by absolute path so
-// no harness source is touched), then validates the plugin's SELF-CONTAINED
-// host path (lib/dsh-compat + surface-seed + emit) by:
-//   1. cross-checking dsh-compat's fold/project/checkpoint against the real
-//      @deepseek-ai/dsh-session functions, and
-//   2. asserting the re-emitted child seed passes real `Session.create` and
-//      reconstructs the SAME model-visible surface as the post-compaction source.
-import { Session, SessionId, foldSurface, deriveEventMessage as realProject } from '../../deepseek-harness/packages/core/session/lib/index.js'
+// no harness source is touched), then validates the HOST's actual path — using
+// the LIVE session's own API (`session.surface.nodes` + `session.deriveEventMessage`)
+// plus the pure `surface-seed`/`emit` modules — by asserting:
+//   - the re-emitted child seed passes real `Session.create`, and
+//   - it reconstructs the SAME model-visible surface as the post-compaction source,
+//     with no chunk/compaction leakage.
+import { Session, SessionId } from '../../deepseek-harness/packages/core/session/lib/index.js'
 import { buildSurfaceSeed, findLastCheckpointSeq, snapTurnEnd } from '../lib/surface-seed.js'
 import { makeEvent } from '../lib/emit.js'
-import { deriveEventMessage, foldSurfaceNodes, isCompactCheckpointSource } from '../lib/dsh-compat.js'
-import { compactCheckpointSource, CompactionId, isCompactCheckpointSource as realCheckpoint } from '../../deepseek-harness/packages/compaction/compaction/lib/index.js'
+import { compactCheckpointSource, CompactionId } from '../../deepseek-harness/packages/compaction/compaction/lib/index.js'
+
+// Mirrors the host's one-line compaction-checkpoint predicate.
+const isCheckpointSource = (data) => data?.source?.kind === 'plugin' && data?.source?.plugin === 'compact'
 
 // --- build a minimal, valid source session with a compaction checkpoint ---
 function buildSourceSession() {
@@ -53,43 +55,17 @@ function buildSourceSession() {
 
 const { session: source, events } = buildSourceSession()
 const sourceMessages = source.deriveMessages().map(m => ({ role: m.role, content: m.content }))
-console.log('source surface nodes (real foldSurface):', foldSurface(events).nodes)
+console.log('source surface.nodes (real):', source.surface.nodes)
 console.log('source deriveMessages():', sourceMessages.map(m => `${m.role}:${JSON.stringify(m.content)}`))
 
-// --- (1) cross-check dsh-compat against the REAL dsh-session functions ---
-const compatNodes = foldSurfaceNodes(events)
-const realNodes = foldSurface(events).nodes
-console.log('dsh-compat foldSurfaceNodes === real foldSurface.nodes:', JSON.stringify(compatNodes) === JSON.stringify(realNodes))
-if (JSON.stringify(compatNodes) !== JSON.stringify(realNodes)) process.exit(1)
-
-let projectMatches = true
-for (const event of events) {
-  const a = deriveEventMessage(event)
-  const b = realProject(event)
-  if (JSON.stringify(a) !== JSON.stringify(b)) {
-    projectMatches = false
-    console.error('  mismatch at seq', event.seq, a, b)
-  }
-}
-console.log('dsh-compat deriveEventMessage === real deriveEventMessage:', projectMatches)
-
-const chkEvent = events.find(e => e.type === 'user/message' && e.data.source?.plugin === 'compact')
-const checkpointMatches = isCompactCheckpointSource(chkEvent.data.source) === realCheckpoint(chkEvent.data.source)
-console.log('dsh-compat isCompactCheckpointSource === real:', checkpointMatches)
-
-if (!projectMatches || !checkpointMatches) process.exit(1)
-
-// --- (2) run the plugin's FULL self-contained host path ---
-const ckptSeq = findLastCheckpointSeq(events, (data) => isCompactCheckpointSource(data.source))
+// --- run the host's actual path: LIVE session API + pure seed/emit modules ---
+const ckptSeq = findLastCheckpointSeq(events, isCheckpointSource)
 const targetEnd = snapTurnEnd(events, undefined)
-const surfaceSeqs = foldSurfaceNodes(events)
-const childSeed = buildSurfaceSeed(events, {
-  surfaceSeqs,
-  ckptSeq,
-  targetEnd,
-  project: deriveEventMessage,
-  makeEvent,
-})
+const surfaceSeqs = source.surface.nodes
+const project = (event) => source.deriveEventMessage(event)
+console.log('ckptSeq:', ckptSeq, 'targetEnd:', targetEnd, 'surfaceSeqs:', surfaceSeqs)
+
+const childSeed = buildSurfaceSeed(events, { surfaceSeqs, ckptSeq, targetEnd, project, makeEvent })
 
 let child
 try {
@@ -106,7 +82,7 @@ const contiguous = childSeed.every((e, i) => e.seq === i)
 const noChunks = !childTypes.includes('assistant/chunk')
 const noCompaction = !childTypes.some(t => t.startsWith('compaction'))
 
-console.log('child has chunks:', noChunks, '| child has compaction markers:', noCompaction)
+console.log('child has chunks:', !noChunks, '| child has compaction markers:', !noCompaction)
 console.log('child seq contiguous from 0:', contiguous)
 console.log('child deriveMessages() === source post-compaction surface:', surfacePreserved)
 
