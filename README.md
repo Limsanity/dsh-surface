@@ -97,25 +97,37 @@ The algorithm, `makeEvent`, and real-`Session` acceptance are validated; dsh-com
 - **No request/header** is carried in the seed (deliberate): the child is a fresh session and logs its own header.
 - **drop/fallback**: `fallbackToForkOnNoCheckpoint` and `autoCompactWhenNeeded` are documented in `docs/design.md` but not yet wired.
 
-## Install (local dev)
+## Install
 
-Not yet published to npm — install from the local checkout with a `link:` spec:
+The `@deepseek-ai/dsh-*` imports in `lib/index.js` are peer-satisfied by the running dsh host at load time (not by the profile's `node_modules`), matching the other installed bundle plugins. Whichever way you install, restart `dsh web` after adding.
+
+### From npm (recommended)
 
 ```bash
-# build the client bundle (wraps src/client.js into the dsh module-loader format)
-npm run build
-
-# add to the web profile (adds @lim324/dsh-surface to both `dependencies`
-# and `dsh.profile.bundles`)
-dsh plugin --profile web add link:/绝对路径/到/dsh-surface
-
-# restart the web GUI so the new bundle is loaded
-dsh web
+dsh plugin --profile web add @lim324/dsh-surface
+# pin a version
+dsh plugin --profile web add @lim324/dsh-surface@0.1.0
 ```
 
-The `@deepseek-ai/dsh-*` imports in `lib/index.js` are peer-satisfied by the running dsh host at load time (not by the profile's `node_modules`), matching the other installed bundle plugins.
+### From GitHub
 
-<!-- installed marker: @lim324/dsh-surface is now in ~/.dsh/profiles/web -->
+```bash
+# shorthand (default branch)
+dsh plugin --profile web add github:Limsanity/dsh-surface
+# or explicit git URL
+dsh plugin --profile web add git+https://github.com/Limsanity/dsh-surface.git
+```
+
+The client bundle (`lib/client.js`) is committed to the repo, so a git install needs no build step.
+
+### Local dev (link)
+
+```bash
+npm run build   # regenerate lib/client.js from src/client.js
+dsh plugin --profile web add link:/绝对路径/到/dsh-surface
+```
+
+All three forms run `pnpm add` in `~/.dsh/profiles/web`, adding `@lim324/dsh-surface` to both the profile's `dependencies` and `dsh.profile.bundles`.
 
 ## See also
 
