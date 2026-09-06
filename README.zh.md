@@ -109,17 +109,6 @@ dsh plugin --profile web add @lim324/dsh-surface
 dsh plugin --profile web add @lim324/dsh-surface@0.1.0
 ```
 
-### 从 GitHub
-
-```bash
-# 简写（默认分支）
-dsh plugin --profile web add github:Limsanity/dsh-surface
-# 或显式 git URL
-dsh plugin --profile web add git+https://github.com/Limsanity/dsh-surface.git
-```
-
-client bundle（`lib/client.js`）已入库，所以 git 安装无需 build。
-
 ### 本地开发（link）
 
 ```bash
@@ -128,7 +117,7 @@ npm run build               # 从 src/client.js 重新生成 lib/client.js（仅
 dsh plugin --profile web add link:/绝对路径/到/dsh-surface
 ```
 
-link 安装的插件 host 无法按名字解析裸 `@deepseek-ai/dsh-*` 导入，所以 `scripts/link-dev-deps.sh` 会把 `$DSH_HOME/profiles/node_modules/@deepseek-ai` 软链进本 checkout 的 `node_modules`，让 `lib/index.js` 从 **HOST 拷贝** import 真实的 `@deepseek-ai/dsh-compaction`。任何 `pnpm install` 后都要重跑。此步骤仅用于**本地 link 开发**——npm/git 安装（真实包）会在加载时经平铺回退目录直接在 host 上解析该 import。
+link 安装的插件 host 无法按名字解析裸 `@deepseek-ai/dsh-*` 导入，所以 `scripts/link-dev-deps.sh` 会把 `$DSH_HOME/profiles/node_modules/@deepseek-ai` 软链进本 checkout 的 `node_modules`，让 `lib/index.js` 从 **HOST 拷贝** import 真实的 `@deepseek-ai/dsh-compaction`。任何 `pnpm install` 后都要重跑。此步骤仅用于**本地 link 开发**——npm 安装（真实包）会在加载时经平铺回退目录直接在 host 上解析该 import。
 
 三种方式都会在 `~/.dsh/profiles/web` 里跑 `pnpm add`，同时把 `@lim324/dsh-surface` 写入 profile 的 `dependencies` 和 `dsh.profile.bundles`。
 

@@ -108,17 +108,6 @@ dsh plugin --profile web add @lim324/dsh-surface
 dsh plugin --profile web add @lim324/dsh-surface@0.1.0
 ```
 
-### From GitHub
-
-```bash
-# shorthand (default branch)
-dsh plugin --profile web add github:Limsanity/dsh-surface
-# or explicit git URL
-dsh plugin --profile web add git+https://github.com/Limsanity/dsh-surface.git
-```
-
-The client bundle (`lib/client.js`) is committed to the repo, so a git install needs no build step.
-
 ### Local dev (link)
 
 ```bash
@@ -127,7 +116,7 @@ npm run build               # regenerate lib/client.js from src/client.js (only 
 dsh plugin --profile web add link:/绝对路径/到/dsh-surface
 ```
 
-A link-installed plugin's host **cannot resolve bare `@deepseek-ai/dsh-*` imports by name** (Node follows the symlink to the real checkout dir, past DSH's flat fallback). So `scripts/link-dev-deps.sh` symlinks `$DSH_HOME/profiles/node_modules/@deepseek-ai` into this checkout's `node_modules`, letting `lib/index.js` import the real `@deepseek-ai/dsh-compaction` from the **HOST copy**. Re-run it after any `pnpm install`. This step is only needed for **local link** development — an npm/git install (a real package) resolves the import against the host at load time via the flat fallback.
+A link-installed plugin's host **cannot resolve bare `@deepseek-ai/dsh-*` imports by name** (Node follows the symlink to the real checkout dir, past DSH's flat fallback). So `scripts/link-dev-deps.sh` symlinks `$DSH_HOME/profiles/node_modules/@deepseek-ai` into this checkout's `node_modules`, letting `lib/index.js` import the real `@deepseek-ai/dsh-compaction` from the **HOST copy**. Re-run it after any `pnpm install`. This step is only needed for **local link** development — an npm install (a real package) resolves the import against the host at load time via the flat fallback.
 
 All three forms run `pnpm add` in `~/.dsh/profiles/web`, adding `@lim324/dsh-surface` to both the profile's `dependencies` and `dsh.profile.bundles`.
 
