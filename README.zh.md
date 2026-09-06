@@ -132,6 +132,31 @@ link 安装的插件 host 无法按名字解析裸 `@deepseek-ai/dsh-*` 导入�
 
 三种方式都会在 `~/.dsh/profiles/web` 里跑 `pnpm add`，同时把 `@lim324/dsh-surface` 写入 profile 的 `dependencies` 和 `dsh.profile.bundles`。
 
+## 开发与发版
+
+```sh
+pnpm install                  # 仅依赖变化时
+./scripts/link-dev-deps.sh    # pnpm install 之后必跑：把宿主 @deepseek-ai/* 软链进 node_modules
+npm run build                 # 从 src/client.js 重建 lib/client.js（仅当客户端源码改动时）
+```
+
+- **host 是源码加载**：`lib/index.js`（host 半边）**不做打包**，直接以源码被 DSH 加载；只有客户端 `lib/client.js` 由 `lib/build.mjs` 从 `src/client.js` 生成。所以改 host 只改 `lib/index.js` 即可，改客户端才需 `npm run build`。
+- **`autoInstallPeers` 要用 `pnpm-workspace.yaml`**：`@deepseek-ai` 系列在 npm 上全是预发布版（`0.1.x-rc` / `alpha`），pnpm 自动安装 peer 会因传递依赖 `>=0.1.1` 不含预发布版而断链。本项目 `pnpm-workspace.yaml` 已设 `autoInstallPeers: false`，这样独立 `pnpm install` / `pnpm test` 才能通过。注意 `.npmrc` 的驼峰写法 pnpm 11 不识别。
+- **link 方式**：见上文「本地开发（link）」。改完需重启 `dsh web` 生效。
+
+### 发版
+
+```sh
+# 1) bump 版本（按 semver 定，如 0.1.5 → 0.1.6）
+# 2) 提交并推送
+git add -A && git commit -m "chore: bump to <version>" && git push origin main
+# 3) 发布（scoped 包必须 --access public）
+npm publish --access public
+```
+
+> - `main` 远端为 `origin`（`github.com/Limsanity/dsh-surface`）。
+> - 发布前 `prepublishOnly` 会自动跑 `npm run build` 重建 `lib/client.js`。
+
 ## 相关文档
 
 - [`docs/design.md`](docs/design.md) — 完整设计（目标、非目标、算法、门控、风险、里程碑）。

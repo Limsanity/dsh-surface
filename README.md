@@ -131,6 +131,31 @@ A link-installed plugin's host **cannot resolve bare `@deepseek-ai/dsh-*` import
 
 All three forms run `pnpm add` in `~/.dsh/profiles/web`, adding `@lim324/dsh-surface` to both the profile's `dependencies` and `dsh.profile.bundles`.
 
+## Development & release
+
+```sh
+pnpm install                  # only when dependencies change
+./scripts/link-dev-deps.sh    # must run after pnpm install: re-link the host @deepseek-ai/* into node_modules
+npm run build                 # rebuild lib/client.js from src/client.js (only when the client source changes)
+```
+
+- **The host is loaded as source**: `lib/index.js` (the host half) is **NOT bundled** — it is loaded as source by DSH. Only the client `lib/client.js` is generated from `src/client.js` by `lib/build.mjs`. So edit `lib/index.js` directly for host changes; run `npm run build` only for client changes.
+- **`autoInstallPeers` must go in `pnpm-workspace.yaml`**: the `@deepseek-ai` packages are all published as prereleases (`0.1.x-rc` / `alpha`); auto-installing peers breaks because their transitive `>=0.1.1` ranges exclude prereleases. This repo sets `autoInstallPeers: false` in `pnpm-workspace.yaml` so a standalone `pnpm install` / `pnpm test` passes. The camelCase `.npmrc` key is NOT honored by pnpm 11.
+- **Link mode**: see "Local dev (link)" above. Restart `dsh web` after changes.
+
+### Release
+
+```sh
+# 1) bump the version (per semver, e.g. 0.1.5 -> 0.1.6)
+# 2) commit and push
+git add -A && git commit -m "chore: bump to <version>" && git push origin main
+# 3) publish (scoped packages need --access public)
+npm publish --access public
+```
+
+> - `main` tracks `origin` (`github.com/Limsanity/dsh-surface`).
+> - Publishing runs `prepublishOnly` (`npm run build`) automatically to rebuild `lib/client.js`.
+
 ## See also
 
 - [`docs/design.md`](docs/design.md) — full design (targets, non-goals, algorithm, gating, risks, milestones).
