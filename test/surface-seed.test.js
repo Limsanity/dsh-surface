@@ -7,14 +7,15 @@ import { buildSurfaceSeed, findLastCheckpointSeq, snapTurnEnd } from '../lib/sur
 /** Minimal DSH-shaped message projection (mirrors deriveEventMessage). */
 function project(event) {
   if (event.type === 'user/message') return { role: 'user', content: event.data.content, source: event.data.source }
-  if (event.type === 'assistant/message') return { role: 'assistant', content: event.data.message.content }
+  if (event.type === 'system/message') return event.data.message
+  if (event.type === 'assistant/message') return event.data.message
   if (event.type === 'tool/result') return { role: 'user', content: event.data.message.content, source: event.data.message.source }
   return null // chunks + boundaries project to null
 }
 
-/** Minimal DSH envelope builder (mirrors the host makeEvent). */
+/** Minimal DSH envelope builder (mirrors the host makeEvent, incl. v3 settlement). */
 function makeEvent(partial) {
-  const { type, turn, step, message, reason } = partial
+  const { type, turn, step, message, reason, stream, usage, interrupted } = partial
   let data
   let surfaceOp
   switch (type) {
@@ -24,6 +25,9 @@ function makeEvent(partial) {
     case 'step/end': data = { turn, step }; break
     case 'user/message': data = message; surfaceOp = 'append'; break
     case 'assistant/message':
+      data = { turn, step, message, stream: Array.isArray(stream) ? stream : [], ...(usage === undefined ? {} : { usage }), ...(interrupted === undefined ? {} : { interrupted }) }
+      surfaceOp = 'append'
+      break
     case 'tool/result': data = { turn, step, message }; surfaceOp = 'append'; break
     default: throw new Error(`unexpected ${type}`)
   }
@@ -143,4 +147,47 @@ test('buildSurfaceSeed drops transient per-step injections (runtime-context, ski
   assert.ok(!userMessages.some(m => m.data.content?.some?.(b => b.text?.includes('Current runtime context'))))
   assert.ok(!userMessages.some(m => m.data.content?.some?.(b => b.text?.includes('available_skills'))))
   assert.ok(seed.some(e => e.type === 'assistant/message'))
+})
+
+test('buildSurfaceSeed carries the v3 assistant settlement fields (stream/usage/interrupted)', () => {
+  const stream = [{ type: 'text', text: 'hi' }]
+  const usage = { inputTokens: 10, outputTokens: 2 }
+  const events = [
+    { type: 'user/message', seq: 0, data: { id: 'c', role: 'user', content: [{ type: 'text', text: 'recap' }], source: { kind: 'plugin', plugin: 'compact' } }, surfaceOp: 'append' },
+    { type: 'assistant/message', seq: 1, data: { turn: 1, step: 1, message: { id: 'a', role: 'assistant', content: [{ type: 'text', text: 'hi' }], source: { kind: 'model', provider: 'p', model: 'm' } }, stream, usage, interrupted: true }, surfaceOp: 'append' },
+  ]
+  const seed = buildSurfaceSeed(events, { surfaceSeqs: [0, 1], ckptSeq: 0, targetEnd: 1, project, makeEvent, now: () => 0 })
+  const assistant = seed.find(e => e.type === 'assistant/message')
+  // Without this array the v3 seed validator rejects the whole child session.
+  assert.ok(Array.isArray(assistant.data.stream))
+  assert.deepEqual(assistant.data.stream, stream)
+  assert.deepEqual(assistant.data.usage, usage)
+  assert.equal(assistant.data.interrupted, true)
+})
+
+test('buildSurfaceSeed defaults a missing source stream to an empty array', () => {
+  const events = [
+    { type: 'user/message', seq: 0, data: { id: 'c', role: 'user', content: [{ type: 'text', text: 'recap' }], source: { kind: 'plugin', plugin: 'compact' } }, surfaceOp: 'append' },
+    // A pre-v3-shaped source event: no `stream` on data.
+    { type: 'assistant/message', seq: 1, data: { turn: 1, step: 1, message: { id: 'a', role: 'assistant', content: [{ type: 'text', text: 'hi' }], source: { kind: 'model', provider: 'p', model: 'm' } } }, surfaceOp: 'append' },
+  ]
+  const seed = buildSurfaceSeed(events, { surfaceSeqs: [0, 1], ckptSeq: 0, targetEnd: 1, project, makeEvent, now: () => 0 })
+  const assistant = seed.find(e => e.type === 'assistant/message')
+  assert.deepEqual(assistant.data.stream, [])
+  assert.equal('usage' in assistant.data, false)
+  assert.equal('interrupted' in assistant.data, false)
+})
+
+test('buildSurfaceSeed drops the source system/message node (the child re-derives its own)', () => {
+  const events = [
+    { type: 'system/message', seq: 0, data: { turn: 1, step: 1, message: { id: 's', role: 'system', content: [{ type: 'text', text: 'STALE PARENT PROMPT' }], source: { kind: 'plugin', plugin: 'dsh-agent-instructions' } } }, surfaceOp: 'append' },
+    { type: 'user/message', seq: 1, data: { id: 'c', role: 'user', content: [{ type: 'text', text: 'recap' }], source: { kind: 'plugin', plugin: 'compact' } }, surfaceOp: 'append' },
+    { type: 'assistant/message', seq: 2, data: { turn: 1, step: 1, message: { id: 'a', role: 'assistant', content: [{ type: 'text', text: 'hi' }], source: { kind: 'model', provider: 'p', model: 'm' } }, stream: [] }, surfaceOp: 'append' },
+  ]
+  const seed = buildSurfaceSeed(events, { surfaceSeqs: [0, 1, 2], ckptSeq: 0, targetEnd: 2, project, makeEvent, now: () => 0 })
+  assert.ok(!seed.some(e => e.type === 'system/message'))
+  // Never re-labelled as an assistant message (that would fail role/source validation).
+  assert.ok(!seed.some(e => e.type === 'assistant/message' && e.data.message.role !== 'assistant'))
+  assert.ok(!JSON.stringify(seed).includes('STALE PARENT PROMPT'))
+  assert.equal(seed.filter(e => e.type === 'assistant/message').length, 1)
 })
