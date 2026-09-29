@@ -3,7 +3,7 @@
 // where `require` resolves React and the dsh client service table. This file is
 // a build input; `lib/build.mjs` bundles it into lib/client.js.
 const React = require('react')
-const { Tooltip, IconNewChatOutline16 } = require('@deepseek-ai/dsh-client-ui-primitives')
+const { Tooltip, IconNewChatOutlineRegular } = require('@deepseek-ai/dsh-client-ui-primitives')
 const NS = 'surface'
 
 // Keep the button visually identical to the chat's native icon action button
@@ -49,7 +49,7 @@ function SurfaceForkAction({ messageId, sessionId, surfaceFork, t }) {
           borderRadius: '28px',
         },
       },
-      React.createElement(IconNewChatOutline16, { size: 16 }),
+      React.createElement(IconNewChatOutlineRegular, { size: 16 }),
     ),
   )
 }
